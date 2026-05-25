@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NielsJanssen\Laravel\Discovery\RebingGraphQL;
 
+use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type as GraphQLType;
 use Illuminate\Foundation\Application;
 use Rebing\GraphQL\Support\Facades\GraphQL;
@@ -17,6 +18,8 @@ trait AsActionField
     /** @var \ReflectionParameter[] */
     private array $reflectionParameters;
 
+    private ?Authorize $failedAuthorize = null;
+
     public function __construct(
         private readonly Application $app,
         private readonly DiscoveredAction $discoveredAction,
@@ -24,9 +27,21 @@ trait AsActionField
 
     public function attributes(): array
     {
-        return [
-            'name' => $this->discoveredAction->action->name ?? $this->discoveredAction->method,
+        $action = $this->discoveredAction->action;
+
+        $attrs = [
+            'name' => $action->name ?? $this->discoveredAction->method,
         ];
+
+        if ($action->description !== null) {
+            $attrs['description'] = $action->description;
+        }
+
+        if ($this->discoveredAction->deprecationReason !== null) {
+            $attrs['deprecationReason'] = $this->discoveredAction->deprecationReason;
+        }
+
+        return $attrs;
     }
 
     public function args(): array
@@ -56,6 +71,10 @@ trait AsActionField
                 $entry['rules'] = $this->resolveClosureRules($arg->paramName);
             }
 
+            if ($arg->deprecationReason !== null) {
+                $entry['deprecationReason'] = $arg->deprecationReason;
+            }
+
             $args[$arg->name] = $entry;
         }
 
@@ -83,7 +102,7 @@ trait AsActionField
         return $action->nullable ? $type : GraphQLType::nonNull($type);
     }
 
-    public function resolve($root, array $args): mixed
+    public function resolve(mixed $root, array $args, mixed $context, ?ResolveInfo $info): mixed
     {
         $mappedArgs = [];
 
@@ -92,10 +111,43 @@ trait AsActionField
             $mappedArgs[$discovered->paramName] = $value ?? $discovered->defaultValue;
         }
 
-        $class = $this->discoveredAction->class;
-        $method = $this->discoveredAction->method;
+        foreach ($this->discoveredAction->injections as $paramName => $kind) {
+            $mappedArgs[$paramName] = match ($kind) {
+                'root' => $root,
+                'context' => $context,
+                'info' => $info,
+            };
+        }
 
-        return $this->app->make($class)->$method(...$mappedArgs);
+        return $this->app->make($this->discoveredAction->class)
+            ->{$this->discoveredAction->method}(...$mappedArgs);
+    }
+
+    protected function getMiddleware(): array
+    {
+        return $this->discoveredAction->middleware;
+    }
+
+    public function authorize(mixed $root, array $args, mixed $context, ?ResolveInfo $resolveInfo = null): bool
+    {
+        foreach ($this->discoveredAction->authorizations as $auth) {
+            $passed = $auth->gate !== null
+                ? $this->app->make($auth->gate)->check($root, $args, $context, $resolveInfo)
+                : auth()->check();
+
+            if (! $passed) {
+                $this->failedAuthorize = $auth;
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function getAuthorizationMessage(): string
+    {
+        return $this->failedAuthorize?->message ?? parent::getAuthorizationMessage();
     }
 
     private function resolveClosureRules(string $paramName): \Closure
