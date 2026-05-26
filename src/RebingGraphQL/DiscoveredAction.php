@@ -23,6 +23,9 @@ class DiscoveredAction
         public ?string $deprecationReason = null,
         /** @var list<Authorize> class-first then method-first, all must pass */
         public array $authorizations = [],
+        public ?ActionTypeBuilder $typeBuilder = null,
+        /** @var array<string, class-string> keyed by paramName */
+        public array $containerInjections = [],
     ) {}
 
     public function createType(Application $app): Field
