@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NielsJanssen\Laravel\Discovery\RebingGraphQL;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use NielsJanssen\Laravel\Discovery\RebingGraphQL\Argument\ComposedFromArgs;
 
 final readonly class Sort implements ComposedFromArgs
 {
