@@ -32,6 +32,10 @@ final class DiscoveredObjectType extends RebingType
             $fields[$field->name] = $this->fieldDefinition($field);
         }
 
+        if ($this->discoveredType->factory !== null) {
+            $fields += $this->app->make(FactoryFields::class)->definitions($this->discoveredType, Position::Output);
+        }
+
         return $fields;
     }
 
@@ -81,7 +85,7 @@ final class DiscoveredObjectType extends RebingType
         $args = [];
 
         foreach ($field->parameters->args as $arg) {
-            $entry = ['type' => $registry->resolve($arg->ref(), Position::Input)];
+            $entry = ['type' => $registry->resolve($arg->type, Position::Input)];
 
             if ($arg->hasDefault && $arg->defaultValue !== null) {
                 $entry['defaultValue'] = $arg->defaultValue;

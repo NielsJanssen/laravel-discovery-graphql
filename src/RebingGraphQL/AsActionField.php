@@ -59,8 +59,8 @@ trait AsActionField
         $args = [];
         $registry = $this->app->make(TypeRegistry::class);
 
-        foreach ($this->discoveredAction->args as $arg) {
-            $entry = ['type' => $registry->resolve($arg->ref(), Position::Input)];
+        foreach ($this->discoveredAction->parameters->args as $arg) {
+            $entry = ['type' => $registry->resolve($arg->type, Position::Input)];
 
             if ($arg->description !== null) {
                 $entry['description'] = $arg->description;
@@ -77,7 +77,7 @@ trait AsActionField
             $args[$arg->name] = $entry;
         }
 
-        foreach ($this->discoveredAction->modelBindings as $binding) {
+        foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
             $entry = ['type' => $registry->resolve(TypeRef::from($binding->type ?? 'ID', nullable: $binding->nullable), Position::Input)];
 
             $rules = $this->resolveModelBindingRules($binding);
@@ -89,7 +89,7 @@ trait AsActionField
             $args[$binding->argName] = $entry;
         }
 
-        foreach ($this->discoveredAction->flattenedInputs as $flattened) {
+        foreach ($this->discoveredAction->parameters->flattenedInputs as $flattened) {
             foreach ($flattened->type->fields as $field) {
                 $args[$field->name] = $this->flattenedArg($registry, $flattened, $field);
             }
@@ -150,27 +150,27 @@ trait AsActionField
 
         $hydrators = $this->app->make(HydratorRegistry::class);
 
-        foreach ($this->discoveredAction->args as $discovered) {
+        foreach ($this->discoveredAction->parameters->args as $discovered) {
             $value = $args[$discovered->name] ?? null;
 
-            if ($discovered->input && is_array($value) && class_exists($discovered->type)) {
-                $value = $hydrators->hydrate($discovered->type, array_filter($value, is_string(...), ARRAY_FILTER_USE_KEY));
+            if ($discovered->input && is_array($value) && $discovered->type->class !== null) {
+                $value = $hydrators->hydrate($discovered->type->class, array_filter($value, is_string(...), ARRAY_FILTER_USE_KEY));
             }
 
             $mappedArgs[$discovered->paramName] = $value ?? $discovered->defaultValue;
         }
 
-        $mappedArgs = [...$mappedArgs, ...Injections::values($this->discoveredAction->injections, $root, $context, $info)];
+        $mappedArgs = [...$mappedArgs, ...Injections::values($this->discoveredAction->parameters->injections, $root, $context, $info)];
 
-        foreach ($this->discoveredAction->argCompositions as $paramName => $valueObjectClass) {
+        foreach ($this->discoveredAction->parameters->argCompositions as $paramName => $valueObjectClass) {
             $mappedArgs[$paramName] = $hydrators->hydrate($valueObjectClass, $args);
         }
 
-        foreach ($this->discoveredAction->flattenedInputs as $flattened) {
+        foreach ($this->discoveredAction->parameters->flattenedInputs as $flattened) {
             $mappedArgs[$flattened->paramName] = $hydrators->hydrate($flattened->type->class, $flattened->toProperties($args));
         }
 
-        foreach ($this->discoveredAction->modelBindings as $binding) {
+        foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
             $value = $args[$binding->argName] ?? null;
 
             if ($value === null) {
@@ -298,7 +298,7 @@ trait AsActionField
      */
     private function deniedBoundModel(array $args, mixed $context, ?ResolveInfo $resolveInfo): ?Authorize
     {
-        foreach ($this->discoveredAction->modelBindings as $binding) {
+        foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
             $denied = $binding->deniedBy($this->app, $args[$binding->argName] ?? null, $args, $context, $resolveInfo);
 
             if ($denied !== null) {
@@ -306,7 +306,7 @@ trait AsActionField
             }
         }
 
-        foreach ($this->discoveredAction->flattenedInputs as $flattened) {
+        foreach ($this->discoveredAction->parameters->flattenedInputs as $flattened) {
             foreach ($flattened->type->fields as $field) {
                 if ($field->bindsNothingIn($args)) {
                     continue;

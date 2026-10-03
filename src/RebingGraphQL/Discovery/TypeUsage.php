@@ -32,15 +32,15 @@ final class TypeUsage
             yield new TypeReference($action->returnType, Position::Output, $method, class_basename($action->action::class));
         }
 
-        foreach ($action->args as $arg) {
-            $ref = $arg->ref();
+        foreach ($action->parameters->args as $arg) {
+            $ref = $arg->type;
 
             if (self::refers($ref)) {
                 yield new TypeReference($ref, Position::Input, "Argument {$arg->name} of " . lcfirst($method), 'Arg');
             }
         }
 
-        foreach ($action->flattenedInputs as $flattened) {
+        foreach ($action->parameters->flattenedInputs as $flattened) {
             foreach ($flattened->type->fields as $field) {
                 if (self::refers($field->type)) {
                     yield new TypeReference($field->type, Position::Input, "Property {$flattened->type->class}::\${$field->phpName}, flattened into " . lcfirst($method) . ',', 'Field');
@@ -66,7 +66,7 @@ final class TypeUsage
             }
 
             foreach ($field->parameters->args as $arg) {
-                $ref = $arg->ref();
+                $ref = $arg->type;
 
                 if (self::refers($ref)) {
                     yield new TypeReference($ref, Position::Input, "Argument {$arg->name} of " . lcfirst($member), 'Arg');
