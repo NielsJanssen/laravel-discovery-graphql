@@ -7,7 +7,7 @@ namespace NielsJanssen\Laravel\Discovery\RebingGraphQL;
 use Exception;
 use Illuminate\Foundation\Application;
 use NielsJanssen\Laravel\Discovery\RebingGraphQL\Argument\Hydrator;
-use Rebing\GraphQL\Support\Field;
+use Rebing\GraphQL\Support\Field as RebingField;
 use Rebing\GraphQL\Support\Middleware as RebingMiddleware;
 
 class DiscoveredAction
@@ -37,9 +37,10 @@ class DiscoveredAction
         public array $argCompositions = [],
         /** @var list<DiscoveredModelBinding> */
         public array $modelBindings = [],
+        public ?TypeRef $returnType = null,
     ) {}
 
-    public function createType(Application $app): Field
+    public function createType(Application $app): RebingField
     {
         return match ($this->action::class) {
             Query::class => new QueryField($app, $this),
