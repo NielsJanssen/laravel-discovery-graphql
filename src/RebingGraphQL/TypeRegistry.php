@@ -8,6 +8,7 @@ use GraphQL\Type\Definition\NullableType;
 use GraphQL\Type\Definition\Type as GraphQLType;
 use Illuminate\Container\Attributes\Singleton;
 use LogicException;
+use NielsJanssen\Laravel\Discovery\RebingGraphQL\Discovery\TypeReference;
 use Rebing\GraphQL\Support\Facades\GraphQL;
 use RuntimeException;
 
@@ -22,6 +23,12 @@ final class TypeRegistry
 
     /** @var array<string, DiscoveredType> */
     private array $types = [];
+
+    /** @var array<class-string, class-string> */
+    private array $providers = [];
+
+    /** @var list<TypeReference> the class references to check once the providers have registered their types */
+    private array $deferred = [];
 
     /**
      * @param class-string $class
@@ -48,6 +55,38 @@ final class TypeRegistry
     public function describe(DiscoveredType $type): void
     {
         $this->types[$type->name] = $type;
+    }
+
+    /**
+     * @param class-string $class
+     */
+    public function addProvider(string $class): void
+    {
+        $this->providers[$class] = $class;
+    }
+
+    /**
+     * @return list<class-string>
+     */
+    public function providers(): array
+    {
+        return array_values($this->providers);
+    }
+
+    /**
+     * @param list<TypeReference> $references
+     */
+    public function deferReferences(array $references): void
+    {
+        $this->deferred = $references;
+    }
+
+    /**
+     * @return list<TypeReference>
+     */
+    public function deferredReferences(): array
+    {
+        return $this->deferred;
     }
 
     public function typeNamed(string $name): ?DiscoveredType
