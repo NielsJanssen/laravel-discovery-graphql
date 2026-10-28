@@ -493,7 +493,7 @@ final readonly class ParameterClassifier
             $argAttr?->type,
             $argAttr?->of,
             $nullable,
-            $argAttr?->nullableItems ?? false,
+            $argAttr->nullableItems ?? false,
             $this->member($param, $method),
         );
 
