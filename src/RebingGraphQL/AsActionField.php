@@ -33,6 +33,14 @@ trait AsActionField
     /** @var array<string, array<string, mixed>>|null */
     private ?array $args = null;
 
+    /**
+     * The records authorize() found for the bound parameters, by arg name with the value they were found by, so
+     * resolve() of the same call does not look them up again.
+     *
+     * @var array<string, array{value: mixed, model: Model}>
+     */
+    private array $boundModels = [];
+
     /** Resolved on first use and kept for the field's lifetime, so a later rebind does not reach this field. */
     private TypeRegistry $registry {
         get => $this->registry ??= $this->app->make(TypeRegistry::class);
@@ -217,20 +225,12 @@ trait AsActionField
             $mappedArgs[$flattened->paramName] = $hydrators->hydrate($flattened->type->class, $flattened->toProperties($args));
         }
 
-        foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
-            $value = $args[$binding->argName] ?? null;
-
-            if ($value === null) {
-                $mappedArgs[$binding->paramName] = null;
-
-                continue;
+        try {
+            foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
+                $mappedArgs[$binding->paramName] = $this->boundModel($binding, $args[$binding->argName] ?? null);
             }
-
-            $query = $binding->query($value);
-
-            $mappedArgs[$binding->paramName] = $binding->nullable
-                ? $query->first()
-                : $query->firstOrFail();
+        } finally {
+            $this->boundModels = [];
         }
 
         $class = $this->discoveredAction->class;
@@ -305,6 +305,24 @@ trait AsActionField
         return $this->argumentRules($arguments)->appendTo($rules);
     }
 
+    /** The record a bound parameter takes: the one authorize() already found, or a lookup of its own. */
+    private function boundModel(DiscoveredModelBinding $binding, mixed $value): ?Model
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $found = $this->boundModels[$binding->argName] ?? null;
+
+        if ($found !== null && $found['value'] === $value) {
+            return $found['model'];
+        }
+
+        $query = $binding->query($value);
+
+        return $binding->nullable ? $query->first() : $query->firstOrFail();
+    }
+
     /**
      * @param  array<string, mixed>  $args
      * @return array<string, string>
@@ -351,6 +369,7 @@ trait AsActionField
     public function authorize(mixed $root, array $args, mixed $context, ?ResolveInfo $resolveInfo = null): bool
     {
         $this->failedOnBoundModel = false;
+        $this->boundModels = [];
 
         foreach ($this->discoveredAction->authorizations as $auth) {
             if (! $auth->allows($this->app, $root, $args, $context, $resolveInfo)) {
@@ -376,6 +395,7 @@ trait AsActionField
             return true;
         }
 
+        $this->boundModels = [];
         $this->failedAuthorize = $denied;
         $this->failedOnBoundModel = true;
 
@@ -388,7 +408,18 @@ trait AsActionField
     private function deniedBoundModel(array $args, mixed $context, ?ResolveInfo $resolveInfo): ?Authorize
     {
         foreach ($this->discoveredAction->parameters->modelBindings as $binding) {
-            $denied = $binding->deniedBy($this->app, $args[$binding->argName] ?? null, $args, $context, $resolveInfo);
+            if ($binding->authorizations === []) {
+                continue;
+            }
+
+            $value = $args[$binding->argName] ?? null;
+            $model = $binding->find($value);
+
+            if ($model !== null) {
+                $this->boundModels[$binding->argName] = ['value' => $value, 'model' => $model];
+            }
+
+            $denied = $binding->deniedForRecord($this->app, $model, $args, $context, $resolveInfo);
 
             if ($denied !== null) {
                 return $denied;
@@ -449,13 +480,16 @@ trait AsActionField
      * Build the validation rules for a model binding: an auto `exists` rule for
      * non-nullable bindings, merged with any user-supplied #[Arg(rules:)].
      *
+     * A non-nullable binding under an #[Authorize] needs no `exists` rule: authorize() runs first and denies a
+     * record it cannot find, so by the time the rule would run the record is known to be there.
+     *
      * @return array<int|string, mixed>|Closure
      */
     private function resolveModelBindingRules(DiscoveredModelBinding $binding): array|Closure
     {
         $rules = [];
 
-        if (! $binding->nullable) {
+        if (! $binding->nullable && $binding->authorizations === []) {
             $rules[] = $binding->existsRule();
         }
 

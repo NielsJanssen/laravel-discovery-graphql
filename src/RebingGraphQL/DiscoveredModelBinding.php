@@ -47,6 +47,12 @@ readonly class DiscoveredModelBinding
         return $modelClass::query()->where(new $modelClass()->getRouteKeyName(), $value);
     }
 
+    /** The record this binding takes for a value, or null when there is no value or no record. */
+    public function find(mixed $value): ?Model
+    {
+        return $value === null ? null : $this->query($value)->first();
+    }
+
     /** The validation rule for a non-nullable binding: the record must exist under its route key. */
     public function existsRule(): Exists
     {
@@ -66,8 +72,16 @@ readonly class DiscoveredModelBinding
             return null;
         }
 
-        $model = $value === null ? null : $this->query($value)->first();
+        return $this->deniedForRecord($app, $this->find($value), $args, $context, $info);
+    }
 
+    /**
+     * The first #[Authorize] a record that is already looked up fails, so the caller can keep the record.
+     *
+     * @param  array<string, mixed>  $args
+     */
+    public function deniedForRecord(Application $app, ?Model $model, array $args, mixed $context, ?ResolveInfo $info): ?Authorize
+    {
         if ($model === null && $this->nullable) {
             return null;
         }
